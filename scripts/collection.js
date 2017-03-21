@@ -20,6 +20,15 @@ var makeRequest = require('makeRequest');
 var util = require('./util');
 var specSources = require('./spec_sources');
 var sp = require('./sortParameters.js');
+var httpCache;
+try {
+  httpCache = YAML.safeLoad(fs.readFileSync(pathLib.join(__dirname,'../metadata/httpCache.yaml'),'utf8'));
+}
+catch (ex) {
+  httpCache = { cache: [] };
+}
+var anyDiff = false;
+var resolverCalled = false;
 
 var warnings = [];
 
@@ -34,14 +43,55 @@ var jsondiffpatch = require('jsondiffpatch').create({
   }
 });
 
+function getCacheIndex(url) {
+  return _.findIndex(httpCache.cache,function(e){
+    return e.url === url;
+  });
+}
+
+function getCacheEntry(url) {
+  var cacheIndex =_.findIndex(httpCache.cache,function(e){
+    return e.url === url;
+  });
+  if (cacheIndex>=0)
+    return httpCache.cache[cacheIndex];
+  else {
+    var cacheEntry = { url: url };
+    httpCache.cache.push(cacheEntry);
+    return cacheEntry;
+  }
+}
+
 converter.ResourceReaders.url = function (url) {
+  resolverCalled = true;
   var options = {
     headers: {
       'Accept': 'application/json,*/*',
     }
   };
+  var cacheEntry = getCacheEntry(url);
+  if (cacheEntry && cacheEntry.gitHash && cacheEntry.etag) {
+    options.headers['If-None-Match'] = cacheEntry.etag;
+  }
   return makeRequest('get', url, options)
-    .then(([, data]) => data.split('\r').join(''));
+    .then(function(result){
+      if (result[0].statusCode === 304) {
+        console.log('304 Not modified');
+        result[1] = util.exec('git show '+cacheEntry.gitHash.trim());
+      }
+      else {
+        fs.writeFileSync('../metadata/tmp', result[1], 'utf8');
+        cacheEntry.gitHash = util.exec('git hash-object -w ../metadata/tmp').trim();
+        anyDiff = true;
+      }
+      for (var h in result[0].headers) {
+        h = h.toLowerCase();
+        if ((h === 'last-modified') || (h == 'etag')) {
+          cacheEntry[h] = result[0].headers[h];
+        }
+      } 
+      return result[1].split('\r').join('');
+    });
 }
 
 class SpecError extends Error {
@@ -156,12 +206,21 @@ function updateCollection(dir, command) {
     .each(([filename, lead]) => {
       if (lead) return writeSpecFromLead(lead, command)
         .then(swagger => {
-          var newFilename = util.getSwaggerPath(swagger);
-          if (newFilename !== filename)
-            warnings.push(`Definition was moved from "${filename}" to "${newFilename}"`);
+          if (swagger) {
+            var newFilename = util.getSwaggerPath(swagger);
+            if (newFilename !== filename)
+              warnings.push(`Spec was moved from "${filename}" to "${newFilename}"`);
+          }
+          else {
+            assert(!anyDiff,'anyDiff must be false here');
+            console.log('Jumped out early');
+          }
         });
     })
-    .done();
+    .done(function(){
+      console.log('Finishing successfully');
+      fs.writeFileSync(pathLib.join(__dirname,'../metadata/httpCache.yaml'),YAML.safeDump(httpCache, {lineWidth:-1}),'utf8');
+    });
 }
 
 function checkPreferred(dir, command) {
@@ -336,10 +395,19 @@ function writeSpecFromLead(lead,command) {
 
 function writeSpec(source, format, exPatch, command) {
   var context = {source};
+  anyDiff = false;
+  resolverCalled = false;
 
   return converter.getSpec(source, format)
     .then(spec => {
       context.spec = spec;
+      if (resolverCalled && !anyDiff)
+        throw Error('Warning: Not modified');
+      var cacheEntry = getCacheEntry(source);
+      if (cacheEntry.skip) {
+        console.log(source);
+        throw Error('Warning: URL is marked for skipping');
+      }
 
       var fixup = util.readYaml(getOriginFixupPath(spec));
       jsondiffpatch.patch(spec, fixup);
@@ -399,7 +467,9 @@ function writeSpec(source, format, exPatch, command) {
       return context.swagger;
     })
     .catch(e => {
-      throw new SpecError(e, context);
+      if (anyDiff || (!e.message.startsWith('Warning')))
+        throw new SpecError(e, context);
+      console.log(e.message);
     });
 }
 
