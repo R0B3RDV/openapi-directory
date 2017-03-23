@@ -70,13 +70,14 @@ converter.ResourceReaders.url = function (url) {
     }
   };
   var cacheEntry = getCacheEntry(url);
-  if (cacheEntry && cacheEntry.gitHash && cacheEntry.etag) {
+  if (cacheEntry && cacheEntry.etag) {
     options.headers['If-None-Match'] = cacheEntry.etag;
   }
   return makeRequest('get', url, options)
     .then(function(result){
       if (result[0].statusCode === 304) {
         console.log('304 Not modified');
+		throw new Error('Warning: not modified');
         result[1] = util.exec('git show '+cacheEntry.gitHash.trim());
       }
       else {
