@@ -137,6 +137,7 @@ program
 program
   .command('update')
   .description('run update')
+  .option('-f, --force', 'update even if skip flag set')
   .option('-q, --quiet', 'suppress two common warnings')
   .arguments('[DIR]')
   .action(updateCollection);
@@ -410,7 +411,7 @@ function writeSpec(source, format, exPatch, command) {
       if (resolverContext.called && !resolverContext.anyDiff)
         throw Error('Warning: Not modified');
       var cacheEntry = getCacheEntry(source);
-      if (cacheEntry.skip) {
+      if (cacheEntry.skip && !command.force) {
         console.log(source);
 		resolverContext.anyDiff = false;
         throw Error('Warning: URL is marked for skipping');
