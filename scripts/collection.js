@@ -27,8 +27,10 @@ try {
 catch (ex) {
   httpCache = { cache: [] };
 }
-var anyDiff = false;
-var resolverCalled = false;
+var resolverContext = {
+  anyDiff: false,
+  called: false
+}
 
 var warnings = [];
 
@@ -63,14 +65,14 @@ function getCacheEntry(url) {
 }
 
 converter.ResourceReaders.url = function (url) {
-  resolverCalled = true;
+  resolverContext.called = true;
   var options = {
     headers: {
       'Accept': 'application/json,*/*',
     }
   };
   var cacheEntry = getCacheEntry(url);
-  if (cacheEntry && cacheEntry.etag) {
+  if (cacheEntry && cacheEntry.etag && resolverContext.format !== 'swagger_1') {
     options.headers['If-None-Match'] = cacheEntry.etag;
   }
   return makeRequest('get', url, options)
@@ -78,12 +80,12 @@ converter.ResourceReaders.url = function (url) {
       if (result[0].statusCode === 304) {
         console.log('304 Not modified');
 		throw new Error('Warning: not modified');
-        result[1] = util.exec('git show '+cacheEntry.gitHash.trim());
+        result[1] = {}; //util.exec('git show '+cacheEntry.gitHash.trim());
       }
       else {
-        fs.writeFileSync('../metadata/tmp', result[1], 'utf8');
-        cacheEntry.gitHash = util.exec('git hash-object -w ../metadata/tmp').trim();
-        anyDiff = true;
+        //fs.writeFileSync('../metadata/tmp', result[1], 'utf8');
+        //cacheEntry.gitHash = util.exec('git hash-object -w ../metadata/tmp').trim();
+        resolverContext.anyDiff = true;
       }
       for (var h in result[0].headers) {
         h = h.toLowerCase();
@@ -213,7 +215,7 @@ function updateCollection(dir, command) {
               warnings.push(`Spec was moved from "${filename}" to "${newFilename}"`);
           }
           else {
-            assert(!anyDiff,'anyDiff must be false here');
+            assert(!resolverContext.anyDiff,'anyDiff must be false here');
             console.log('Jumped out early');
           }
         });
@@ -396,13 +398,17 @@ function writeSpecFromLead(lead,command) {
 
 function writeSpec(source, format, exPatch, command) {
   var context = {source};
-  anyDiff = false;
-  resolverCalled = false;
+  resolverContext = {
+    anyDiff: false,
+    called: false,
+    source: source,
+	format: format
+  };
 
   return converter.getSpec(source, format)
     .then(spec => {
       context.spec = spec;
-      if (resolverCalled && !anyDiff)
+      if (resolverContext.called && !resolverContext.anyDiff)
         throw Error('Warning: Not modified');
       var cacheEntry = getCacheEntry(source);
       if (cacheEntry.skip) {
@@ -468,7 +474,7 @@ function writeSpec(source, format, exPatch, command) {
       return context.swagger;
     })
     .catch(e => {
-      if (anyDiff || (!e.message.startsWith('Warning')))
+      if (resolverContext.anyDiff || (!e.message.startsWith('Warning')))
         throw new SpecError(e, context);
       console.log(e.message);
     });
