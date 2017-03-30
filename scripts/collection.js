@@ -78,7 +78,7 @@ converter.ResourceReaders.url = function (url) {
   return makeRequest('get', url, options)
     .then(function(result){
       if (result[0].statusCode === 304) {
-        console.log('304 Not modified');
+        //console.log('304 Not modified');
 		throw new Error('Warning: not modified');
         result[1] = {}; //util.exec('git show '+cacheEntry.gitHash.trim());
       }
@@ -216,7 +216,6 @@ function updateCollection(dir, command) {
           }
           else {
             assert(!resolverContext.anyDiff,'anyDiff must be false here');
-            console.log('Jumped out early');
           }
         });
     })
@@ -413,6 +412,7 @@ function writeSpec(source, format, exPatch, command) {
       var cacheEntry = getCacheEntry(source);
       if (cacheEntry.skip) {
         console.log(source);
+		resolverContext.anyDiff = false;
         throw Error('Warning: URL is marked for skipping');
       }
 
