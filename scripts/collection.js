@@ -843,7 +843,12 @@ function errorToString(error, context) {
   else
     result += error.stack + '\n';
 
-  if (_.get(validation, 'warnings')) {
+  var warnings = validation.warnings||[];
+  _.remove(warnings, function (warning) {
+     return ((warning.code === 'UNUSED_DEFINITION') || (warning.code === 'EXTRA_REFERENCE_PROPERTIES'));
+  });
+
+  if (warnings.length) {
     result += '******************** Warnings ' + source + ' *************************\n';
     result += util.Yaml2String(validation.warnings);
   }
