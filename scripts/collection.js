@@ -25,6 +25,7 @@ try {
   httpCache = YAML.safeLoad(fs.readFileSync(pathLib.join(__dirname,'../metadata/httpCache.yaml'),'utf8'));
 }
 catch (ex) {
+  console.log(ex.message);
   httpCache = { cache: [] };
 }
 var resolverContext = {
@@ -208,17 +209,28 @@ function updateCollection(dir, command) {
   specSources.getLeads(util.getSpecs(dir))
     .then(leads => _.toPairs(leads))
     .each(([filename, lead]) => {
-      if (lead) return writeSpecFromLead(lead, command)
-        .then(swagger => {
-          if (swagger) {
-            var newFilename = util.getSwaggerPath(swagger);
-            if (newFilename !== filename)
-              warnings.push(`Spec was moved from "${filename}" to "${newFilename}"`);
-          }
-          else {
-            assert(!resolverContext.anyDiff,'anyDiff must be false here');
-          }
-        });
+      if (lead) {
+        var origin = _.cloneDeep(util.getOrigin(lead));
+        if (Array.isArray(origin))
+	      origin = origin.pop();
+        var source = origin.url;
+        var cacheEntry = getCacheEntry(source);
+	    if (cacheEntry.skip && !command.force) {
+          console.log('SKIP '+source);
+	      return null;
+	    }
+        return writeSpecFromLead(lead, command)
+          .then(swagger => {
+            if (swagger) {
+              var newFilename = util.getSwaggerPath(swagger);
+              if (newFilename !== filename)
+                warnings.push(`Spec was moved from "${filename}" to "${newFilename}"`);
+            }
+            else {
+              assert(!resolverContext.anyDiff,'anyDiff must be false here');
+            }
+          });
+      }
     })
     .done(function(){
       console.log('Finishing successfully');
@@ -410,13 +422,6 @@ function writeSpec(source, format, exPatch, command) {
       context.spec = spec;
       if (resolverContext.called && !resolverContext.anyDiff)
         throw Error('Warning: Not modified');
-      var cacheEntry = getCacheEntry(source);
-      if (cacheEntry.skip && !command.force) {
-        console.log(source);
-		resolverContext.anyDiff = false;
-        throw Error('Warning: URL is marked for skipping');
-      }
-
       var fixup = util.readYaml(getOriginFixupPath(spec));
       jsondiffpatch.patch(spec, fixup);
 
