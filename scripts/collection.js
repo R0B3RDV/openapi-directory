@@ -70,7 +70,8 @@ converter.ResourceReaders.url = function (url) {
   var options = {
     headers: {
       'Accept': 'application/json,*/*',
-    }
+    },
+	retries : 10
   };
   var cacheEntry = getCacheEntry(url);
   if (cacheEntry && cacheEntry.etag && resolverContext.format !== 'swagger_1') {
@@ -93,7 +94,7 @@ converter.ResourceReaders.url = function (url) {
         if ((h === 'last-modified') || (h == 'etag')) {
           cacheEntry[h] = result[0].headers[h];
         }
-      } 
+      }
       return result[1].split('\r').join('');
     });
 }
@@ -467,6 +468,7 @@ function writeSpec(source, format, exPatch, command) {
 	  delete exPatch.info['x-providerName'];
 	  delete exPatch.info['x-serviceName'];
 	  delete exPatch.info['x-preferred'];
+	  delete exPatch.info['x-origin'];
 
       if (Object.keys(exPatch.info).length) {
         var patchFilename = pathLib.join(util.getPathComponents(context.swagger, true).join('/'),'patch.yaml');
@@ -480,6 +482,8 @@ function writeSpec(source, format, exPatch, command) {
       return context.swagger;
     })
     .catch(e => {
+      if (e.message.indexOf('Can not')>=0)
+	    e.message = 'Warning: '+e.message;
       if (resolverContext.anyDiff || (!e.message.startsWith('Warning')))
         throw new SpecError(e, context);
       console.log(e.message);
@@ -848,7 +852,7 @@ function errorToString(error, context) {
   else
     result += error.stack + '\n';
 
-  var warnings = validation.warnings||[];
+  var warnings = (validation && validation.warnings ? validation.warnings : []);
   _.remove(warnings, function (warning) {
      return ((warning.code === 'UNUSED_DEFINITION') || (warning.code === 'EXTRA_REFERENCE_PROPERTIES'));
   });
@@ -1006,7 +1010,8 @@ function convertToSwagger(spec) {
             version: converterVersion
         };
       }
-      swagger.spec.info['x-origin'].push(newOrigin);
+	  if (!_.isEqual(_.last(swagger.spec.info['x-origin']),newOrigin))
+        swagger.spec.info['x-origin'].push(newOrigin);
       return swagger.spec;
     });
 }
