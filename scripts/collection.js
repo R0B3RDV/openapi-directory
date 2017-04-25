@@ -74,14 +74,13 @@ converter.ResourceReaders.url = function (url) {
 	retries : 10
   };
   var cacheEntry = getCacheEntry(url);
-  if (cacheEntry && cacheEntry.etag && resolverContext.format !== 'swagger_1') {
+  if (cacheEntry && cacheEntry.etag && resolverContext.etag && resolverContext.format !== 'swagger_1') {
     options.headers['If-None-Match'] = cacheEntry.etag;
   }
   return makeRequest('get', url, options)
     .then(function(result){
       if (result[0].statusCode === 304) {
-        //console.log('304 Not modified');
-		throw new Error('Warning: not modified');
+		throw new Error('Warning: 304 Not Modified');
         result[1] = {}; //util.exec('git show '+cacheEntry.gitHash.trim());
       }
       else {
@@ -141,6 +140,7 @@ program
   .description('run update')
   .option('-f, --force', 'update even if skip flag set')
   .option('-q, --quiet', 'suppress two common warnings')
+  .option('-s, --slow', 'do not use httpCache etag info')
   .arguments('[DIR]')
   .action(updateCollection);
 
@@ -415,14 +415,15 @@ function writeSpec(source, format, exPatch, command) {
     anyDiff: false,
     called: false,
     source: source,
-	format: format
+	format: format,
+	etag: !command.slow
   };
 
   return converter.getSpec(source, format)
     .then(spec => {
       context.spec = spec;
       if (resolverContext.called && !resolverContext.anyDiff)
-        throw Error('Warning: Not modified');
+        throw Error('Warning: 304 Not modified');
       var fixup = util.readYaml(getOriginFixupPath(spec));
       jsondiffpatch.patch(spec, fixup);
 
