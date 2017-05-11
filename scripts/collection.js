@@ -140,6 +140,7 @@ program
   .description('run update')
   .option('-f, --force', 'update even if skip flag set')
   .option('-q, --quiet', 'suppress two common warnings')
+  .option('-r, --resume <PROVIDER>','resume update at a particular provider')
   .option('-s, --slow', 'do not use httpCache etag info')
   .arguments('[DIR]')
   .action(updateCollection);
@@ -209,6 +210,15 @@ function fixupSwagger(swaggerPath) {
 function updateCollection(dir, command) {
   specSources.getLeads(util.getSpecs(dir))
     .then(leads => _.toPairs(leads))
+	.then(leadPairs => {
+		if (command.resume) {
+			_.remove(leadPairs, function(lp){
+				console.log(lp[0],command.resume);
+				return (lp[0] < command.resume);
+			});
+		}
+		return leadPairs;
+	})
     .each(([filename, lead]) => {
       if (lead) {
         var origin = _.cloneDeep(util.getOrigin(lead));
@@ -216,7 +226,7 @@ function updateCollection(dir, command) {
 	      origin = origin.pop();
         var source = origin.url;
         var cacheEntry = getCacheEntry(source);
-	    if (cacheEntry.skip && !command.force) {
+	    if ((cacheEntry.skip && !command.force) || (origin['x-apisguru-direct'])) {
           console.log('SKIP '+source);
 	      return null;
 	    }
@@ -432,7 +442,8 @@ function writeSpec(source, format, exPatch, command) {
     .then(swagger => {
       context.swagger = swagger;
 
-      patchSwagger(swagger, exPatch);
+      delete exPatch.info.version; // testing
+	  patchSwagger(swagger, exPatch);
 
       expandPathTemplates(swagger);
       replaceSpacesInSchemaNames(swagger);
